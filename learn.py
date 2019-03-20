@@ -60,10 +60,11 @@ def filter_function(info: FileInfo) -> bool:
 def get_features(infos: Iterable[FileInfo]) -> Iterable[FileInfoWithFeatures]:
     for info in infos:
         y, sample_rate = librosa.load(info.file_path)
-        mfcc = list(librosa.feature.mfcc(y=y, sr=sample_rate, hop_length=512, n_mfcc=13).reshape(1, -1)[0])
+        mfcc = librosa.feature.mfcc(y=y, sr=sample_rate, hop_length=512, n_mfcc=13)
         if not len(mfcc):
             continue
-        yield FileInfoWithFeatures(info, mfcc)
+        for row in mfcc.T:
+            yield FileInfoWithFeatures(info, list(row))
 
 
 def get_dataframe(infos: Iterable[FileInfoWithFeatures]) -> pd.DataFrame:
