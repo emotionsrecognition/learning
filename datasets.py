@@ -72,10 +72,11 @@ def get_emovo() -> List[FileInfo]:
     files = []
     for gender, dir_pref in ((Gender.MALE, 'm'), (Gender.FEMALE, 'f')):
         for i in range(1, 4):
-            for file in os.listdir(os.path.join(BASE_DIR, EMOVO, f'{dir_pref}{i}')):
+            subdir = os.path.join(BASE_DIR, EMOVO, f'{dir_pref}{i}')
+            for file in os.listdir(subdir):
                 emo, actor, sentence = strip_extension(file).split('-')
                 files.append(FileInfo(
-                    os.path.join(BASE_DIR, EMOVO, file),
+                    os.path.join(subdir, file),
                     actor,
                     sentence,
                     emotions[emo],
@@ -179,7 +180,7 @@ def get_berlin() -> List[FileInfo]:
 def get_ravdess() -> List[FileInfo]:
     emotions = {
         '01': Emotion.NEUTRAL,
-        '02': Emotion.CALM,
+        '02': Emotion.NEUTRAL,
         '03': Emotion.JOY,
         '04': Emotion.SADNESS,
         '05': Emotion.ANGER,
@@ -251,3 +252,7 @@ def get_tess() -> List[FileInfo]:
             ))
 
     return files
+
+
+if __name__ == '__main__':
+    print(get_emovo())
