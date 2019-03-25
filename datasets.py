@@ -45,10 +45,10 @@ class FileInfo(NamedTuple):
     age: ActorAge = ActorAge.UNKNOWN
 
 
-BASE_DIR = '../data/'
+BASE_DIR = os.path.join(os.getcwd(), 'data')
 EMOVO = 'EMOVO'
 CAFE = 'CaFe'
-BERLIN = 'Berlin/wav'
+BERLIN = os.path.join('Berlin', 'wav')
 RAVDESS = 'RAVDESS'
 TESS = 'TESS'
 
