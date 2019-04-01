@@ -1,33 +1,20 @@
 #!/usr/bin/env python3
 # coding=utf-8
 import math
-import os
-from typing import Iterable, NamedTuple, List
-
-conda = 'C:\ProgramData\Anaconda3\envs\emotions_36'
-os.environ["PATH"] += rf";{conda}"
-os.environ["PATH"] += rf";{conda}\Library\mingw-w64\\bin"
-os.environ["PATH"] += rf";{conda}\Library\\usr\\bin"
-os.environ["PATH"] += rf";{conda}\Library\\bin"
-os.environ["PATH"] += rf";{conda}\Scripts"
-import librosa
+from itertools import chain
 import pandas as pd
 import numpy as np
-from datasets import FileInfo, Emotion, ActorAge, Intensity, get_berlin, get_cafe, get_emovo, get_ravdess, get_tess
+from datasets import FileInfo, Emotion, Gender, ActorAge, Intensity, get_berlin, get_cafe, get_emovo, get_ravdess, \
+    get_tess
 
-from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.pipeline import Pipeline
 from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.metrics import classification_report
+from sklearn.externals import joblib
 
 
-class FileInfoWithFeatures(NamedTuple):
-    info: FileInfo
-    mfcc: List
-
-
-def select_mfcc(df):
-    return df.loc[:, df.columns != 0]
+def select_features(df):
+    return df.loc[:, df.columns != 'emotion']
 
 
 def validate(model, data_test, answer_test):
@@ -36,11 +23,11 @@ def validate(model, data_test, answer_test):
     predicted = {}
     accuracies = {}
     for emo in Emotion:
-        cat = test_df[test_df[0] == emo.value]
+        cat = test_df[test_df['emotion'] == emo.value]
         if not len(cat):
             continue
-        predicted[emo] = pred = model.predict(select_mfcc(cat))
-        accuracies[emo] = np.mean(pred == cat[0])
+        predicted[emo] = pred = model.predict(select_features(cat))
+        accuracies[emo] = np.mean(pred == cat['emotion'])
 
     total = 1
     for emo, acc in accuracies.items():
@@ -52,56 +39,62 @@ def validate(model, data_test, answer_test):
 
 
 def filter_function(info: FileInfo) -> bool:
-    return info.age == ActorAge.OLD and (
-        True  # and info.emotion == Emotion.NEUTRAL or info.emotion == Emotion.JOY or info.emotion == Emotion.ANGER
-    )
-
-
-def get_features(infos: Iterable[FileInfo]) -> Iterable[FileInfoWithFeatures]:
-    for info in infos:
-        y, sample_rate = librosa.load(info.file_path)
-        mfcc = librosa.feature.mfcc(y=y, sr=sample_rate, hop_length=512, n_mfcc=13)
-        if not len(mfcc):
-            continue
-        for row in mfcc.T:
-            yield FileInfoWithFeatures(info, list(row))
-
-
-def get_dataframe(infos: Iterable[FileInfoWithFeatures]) -> pd.DataFrame:
-    data = [
-        [info.info.emotion.value] + info.mfcc
-        for info in infos
-    ]
-    return pd.DataFrame(data).fillna(0)
+    return (info.gender == Gender.MALE) and (
+                info.intensity == Intensity.HIGH or info.intensity == Intensity.UNKNOWN) and (
+                   info.emotion == Emotion.NEUTRAL or info.emotion == Emotion.JOY or info.emotion == Emotion.ANGER or
+                   info.emotion == Emotion.SURPRISE or True
+           ) and (info.age == ActorAge.OLD or info.age == ActorAge.UNKNOWN)
 
 
 if __name__ == '__main__':
-    dataset = filter(filter_function, get_tess())
-    features = get_features(dataset)
-    df = get_dataframe(features)
+    df = pd.DataFrame()
 
-    data_train, data_test, answer_train, answer_test = train_test_split(select_mfcc(df), df[0], test_size=0.3, shuffle=True, random_state=16)
+    for info in filter(filter_function, chain(get_ravdess(), get_berlin(), get_cafe(), get_emovo())):
+        features = pd.read_csv(info.features_path, sep=';').iloc[:, 2:]
+        # TODO: how to insert int column in this fucking pandas?
+        features.insert(0, 'emotion', info.emotion.value, True)
 
-    with pd.option_context('display.max_rows', None):
-        print(data_test)
-    print(answer_test)
+        df = df.append(features)
 
-    forest = RandomForestClassifier(n_estimators=42, n_jobs=-1, random_state=17)
-    forest_params = {
-        'max_depth': range(100, 110),
-        'max_features': range(900, 910)
-    }
+    data_train, data_test, answer_train, answer_test = train_test_split(select_features(df), df['emotion'], test_size=0.3, shuffle=True, random_state=20)
+
+    forest = RandomForestClassifier(n_jobs=-1)
+    forest_params = dict(
+        n_estimators=[1000, 5000],
+        max_depth=[7, 17, 50],
+        max_features=[1, 2, 3, 5, 10, 32, None],
+        random_state=[42],
+    )
     grid = GridSearchCV(
         forest, forest_params,
         cv=7, n_jobs=-1,
         verbose=True
     )
 
-    pipe = Pipeline([
-        # ('lr', LogisticRegression(solver='lbfgs', multi_class='ovr', max_iter=1000))
-        ('lr', grid)
-    ])
+    grid.fit(data_train, answer_train)
 
-    pipe.fit(data_train, answer_train)
-    validate(pipe, data_test, answer_test)
+    print("Best parameters set found on development set:")
+    print()
+    print(grid.best_params_)
+    print()
+    print("Grid scores on development set:")
+    print()
+    means = grid.cv_results_['mean_test_score']
+    stds = grid.cv_results_['std_test_score']
+    for mean, std, params in zip(means, stds, grid.cv_results_['params']):
+        print("%0.3f (+/-%0.03f) for %r"
+              % (mean, std * 2, params))
+    print()
 
+    print("Detailed classification report:")
+    print()
+    print("The model is trained on the full development set.")
+    print("The scores are computed on the full evaluation set.")
+    print()
+    y_true, y_pred = answer_test, grid.predict(data_test)
+    print(classification_report(y_true, y_pred))
+    print()
+
+    validate(grid, data_test, answer_test)
+
+    joblib.dump(grid.best_estimator_, 'grid2.pkl')
