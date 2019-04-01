@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # coding=utf-8
 import os
+import pathlib
 from enum import Enum
 from itertools import zip_longest
 from typing import NamedTuple, List
@@ -43,6 +44,20 @@ class FileInfo(NamedTuple):
     gender: Gender
     intensity: Intensity = Intensity.UNKNOWN
     age: ActorAge = ActorAge.UNKNOWN
+
+    @property
+    def features_path(self) -> str:
+        parts = list(pathlib.Path(self.file_path).parts)
+        data_index = parts.index('data')
+        parts[data_index] = 'data_csv'
+        return os.path.join(*parts) + '.csv'
+
+    @property
+    def name(self) -> str:
+        parts = pathlib.Path(self.file_path).parts
+        return os.path.join(
+            *parts[parts.index('data'):]
+        )
 
 
 BASE_DIR = os.path.join(os.getcwd(), 'data')
