@@ -69,7 +69,7 @@ def process_aggreagtes() -> None:
             new_line = (
                 # sry for this
                 "'" + path[len(r'C:\Projects\Emotions\learning\\') - 1:] +
-                f"';{str(info.emotion.value)};{info.actor};{info.gender.value};{info.intensity.value};{info.age.value}" +
+                f"';{str(info.emotion.value)};{info.dataset};{info.actor};{info.gender.value};{info.intensity.value};{info.age.value}" +
                 line[index:]
             )
 

@@ -42,6 +42,7 @@ class FileInfo(NamedTuple):
     sentence: str
     emotion: Emotion
     gender: Gender
+    dataset: str
     intensity: Intensity = Intensity.UNKNOWN
     age: ActorAge = ActorAge.UNKNOWN
 
@@ -92,10 +93,11 @@ def get_emovo() -> List[FileInfo]:
                 emo, actor, sentence = strip_extension(file).split('-')
                 files.append(FileInfo(
                     os.path.join(subdir, file),
-                    actor,
+                    f'emovo_{actor}',
                     sentence,
                     emotions[emo],
-                    gender
+                    gender,
+                    'emovo'
                 ))
 
     return files
@@ -141,10 +143,11 @@ def get_cafe() -> List[FileInfo]:
             gender = Gender.MALE if int(actor) % 2 == 1 else Gender.FEMALE
             files.append(FileInfo(
                 os.path.join(dir, subdir, file),
-                actor,
+                f'cafe_{actor}',
                 sentence,
                 emo,
                 gender,
+                'cafe',
                 intensity
             ))
 
@@ -183,10 +186,11 @@ def get_berlin() -> List[FileInfo]:
         gender = genders[actor]
         files.append(FileInfo(
             os.path.join(BASE_DIR, BERLIN, file),
-            actor,
+            f'berlin_{actor}',
             sentence,
             emo,
-            gender
+            gender,
+            'berlin'
         ))
 
     return files
@@ -216,10 +220,11 @@ def get_ravdess() -> List[FileInfo]:
             gender = Gender.MALE if int(actor) % 2 == 1 else Gender.FEMALE
             files.append(FileInfo(
                 os.path.join(dir, subdir, file),
-                actor,
+                f'ravdess_{actor}',
                 sentence,
                 emotions[emo],
                 gender,
+                'ravdess',
                 intensities[intensity]
             ))
 
@@ -259,10 +264,11 @@ def get_tess() -> List[FileInfo]:
             _, sentence, _ = file.split('_')
             files.append(FileInfo(
                 os.path.join(dir, subdir, file),
-                age.name,
+                f'tess_{age.name}',
                 sentence,
                 emo,
                 Gender.MALE,
+                'tess',
                 age=age
             ))
 
@@ -271,3 +277,4 @@ def get_tess() -> List[FileInfo]:
 
 if __name__ == '__main__':
     print(get_emovo())
+
