@@ -14,7 +14,7 @@ from lightgbm import LGBMClassifier
 from xgboost import XGBClassifier
 from catboost import CatBoostClassifier
 
-from sklearn.cross_validation import StratifiedKFold
+from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, r2_score
 
 
@@ -48,8 +48,7 @@ class Model:
         return self.model.predict(X)
 
     def reset(self) -> 'Model':
-        new_clf = self.get_clf_class()(**self.model.get_params())
-        super().__init__(new_clf)
+        self.model = self.get_clf_class()(**self.model.get_params())
         return self
 
     def get_clf_class(self):
@@ -91,15 +90,20 @@ class ClassifierWithSaveLoadInterface(Model):
 
 def run_model_pipeline_cv(X: Data, y: Target, clf_model: Model,
                           experiment_name: str, n_folds: int = 5):
+    # It needs because of iloc    
+    X = pd.DataFrame(X)
+    y = pd.Series(y)
+
+    # Training preparation
     exp_path = os.path.join(FILE_DIR, EXPERIMENT_FOLDER, experiment_name)
     if not os.path.exists(exp_path):
         os.mkdir(exp_path)
 
     predictions = np.zeros(y.shape) - 1
     scores, models, durations = defaultdict(list), [], []
-    skf = StratifiedKFold(y, n_folds=n_folds, shuffle=True)
+    skf = StratifiedKFold(n_splits=n_folds, shuffle=True)
 
-    for i, (train_index, test_index) in enumerate(skf):
+    for i, (train_index, test_index) in enumerate(skf.split(X, y)):
         start = time.monotonic()
 
         # split data
@@ -122,7 +126,7 @@ def run_model_pipeline_cv(X: Data, y: Target, clf_model: Model,
         clf.save_model(os.path.join(exp_path, 'model_{}'.format(i)))
 
         scores_path = os.path.join(exp_path, 'scores.json')
-        with open(scores_path) as f:
+        with open(scores_path, 'w') as f:
             json.dump(scores, f)
 
         predictions_path = os.path.join(exp_path, 'predictions.pkl')
@@ -144,3 +148,7 @@ def example():
     model = ClassifierPickleSaveLoad(LGBMClassifier(), LGBMClassifier)
     pipeline_results = run_model_pipeline_cv(X, y, model, 'example_exp')
     predictions, scores, models, durations = pipeline_results
+
+
+if __name__ == '__main__':
+    example()
