@@ -37,7 +37,7 @@ def get_features(info_list: Iterable[datasets.FileInfo], config_path: str) -> No
     for info in info_list:
         try:
             command = base_command.format(
-                aggregates=AGGREGATES_PATH, input=info.file_path, line_name=info.file_path
+                aggregates=AGGREGATES_PATH, input=info.file_path, line_name='_'.join(info.file_path.split(' '))
             )
             subprocess.check_output(command, shell=True)
         except Exception:
@@ -56,7 +56,7 @@ def mirror_dir_tree(base_path: str) -> None:
 
 def process_aggreagtes(info_list: Iterable[datasets.FileInfo]) -> None:
     sets: Dict[str, datasets.FileInfo] = {
-        info.file_path: info
+        '_'.join(info.file_path.split(' ')): info
         for info in info_list
     }
 

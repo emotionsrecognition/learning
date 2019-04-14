@@ -263,8 +263,7 @@ def get_tess() -> List[FileInfo]:
         for file in os.listdir(os.path.join(dir, subdir)):
             _, sentence, _ = file.split('_')
             files.append(FileInfo(
-                # :((
-                '_'.join(os.path.join(dir, subdir, file).split(' ')),
+                os.path.join(dir, subdir, file),
                 f'tess_{age.name}',
                 sentence,
                 emo,
