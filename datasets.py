@@ -17,6 +17,7 @@ class Emotion(Enum):
     NEUTRAL = 7
     BOREDOM = 8
     CALM = 9
+    UNKNOWN = 255
 
 
 class Gender(Enum):
