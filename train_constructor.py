@@ -5,10 +5,11 @@ import pickle
 
 from collections import defaultdict
 from functools import partial
-from typing import Union
+from typing import Union, List
 
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 
 from lightgbm import LGBMClassifier
 from xgboost import XGBClassifier
@@ -16,6 +17,7 @@ from catboost import CatBoostClassifier
 
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, r2_score
+from sklearn.externals import joblib
 
 
 Data = Union[np.ndarray, pd.DataFrame]
@@ -54,6 +56,17 @@ class Model:
     def get_clf_class(self):
         return self.model_class
 
+    def get_features_importance(self):
+        # shit code
+        if self.get_clf_class() == LGBMClassifier:
+            return self.model.feature_importances_
+        if self.get_clf_class() == CatBoostClassifier:
+            return self.model.get_feature_importance()
+        if self.get_clf_class() == XGBClassifier:
+            return self.model.feature_importance_
+
+        raise NotImplemented
+
     def save_model(self, path: str):
         raise NotImplemented
 
@@ -88,10 +101,92 @@ class ClassifierWithSaveLoadInterface(Model):
         return model
 
 
-def run_model_pipeline_cv(X: Data, y: Target, clf_model: Model,
-                          experiment_name: str, n_folds: int = 5):
-    # It needs because of iloc    
-    X = pd.DataFrame(X)
+def save_model_and_artifacts(model, i, scores, predictions, durations, exp_path):
+    model.save_model(os.path.join(exp_path, 'model_{}'.format(i)))
+
+    scores_path = os.path.join(exp_path, 'scores.json')
+    with open(scores_path, 'w') as f:
+        json.dump(scores, f)
+
+    predictions_path = os.path.join(exp_path, 'predictions.pkl')
+    with open(predictions_path, 'bw') as f:
+        pickle.dump(predictions, f)
+
+    durations_path = os.path.join(exp_path, 'durations.pkl')
+    with open(durations_path, 'bw') as f:
+        pickle.dump(durations, f)
+
+
+def get_features_importance(models):
+    importances = [model.get_features_importance() for model in models]
+    importances = np.array(importances)
+
+    sum_importance = importances.sum(axis=0)
+    return sum_importance, sum_importance / sum_importance.max()
+
+
+def plt_bar_feature_importance_with_bad_indication(
+        feature_names, feature_freqs, n, exp_path):
+    y_pos = np.arange(len(feature_names))
+
+    bad_poses, bad_names, bad_freqs = y_pos[:n], feature_names[:n], feature_freqs[:n]
+    good_poses, good_names, good_freqs = y_pos[n:], feature_names[n:], feature_freqs[n:]
+
+    plt.bar(bad_poses, bad_freqs, color='r', align='center')
+    plt.xticks(bad_poses, bad_names, rotation='vertical')
+
+    plt.bar(good_poses, good_freqs, color='g', align='center')
+    plt.xticks(good_poses, good_names, rotation='vertical')
+
+    plt.ylabel('Frequency by maximum')
+    plt.title('Feature name')
+
+    plt.savefig(os.path.join(exp_path, 'feature_importance_with_bad_indication.jpg'))
+
+
+def save_plt_bar_feature_importance(feature_names, feature_freqs, exp_path):
+    plt.figure(figsize=(10, 20))
+    y_pos = np.arange(len(feature_names))
+
+    plt.bar(y_pos, feature_freqs, color='b', align='center')
+    plt.xticks(y_pos, feature_names, rotation='vertical')
+
+    plt.ylabel('Frequency (sum / max)')
+    plt.title('Feature name')
+
+    plt.savefig(os.path.join(exp_path, 'feature_importance.jpg'))
+
+
+def get_top_worst_features(models, feature_names, n, exp_path):
+    _, max_freq_importance = get_features_importance(models)
+    name_max_freq_triples = [(i, feature_names[i], max_freq)
+                             for i, max_freq in enumerate(max_freq_importance)]
+    name_max_freq_triples.sort(key=lambda x: x[2])
+
+    freqs = [freq for _, _, freq in name_max_freq_triples]
+    names = [name for _, name, _ in name_max_freq_triples]
+
+    plt_bar_feature_importance_with_bad_indication(names, freqs, n, exp_path)
+
+    return name_max_freq_triples[:n]
+
+
+def split_data(X, y, train_index, test_index):
+    X_train, X_test = X.iloc[train_index], X.iloc[test_index]
+    y_train, y_test = y.iloc[train_index], y.iloc[test_index]
+
+    return X_train, X_test, y_train, y_test
+
+
+def run_model_pipeline_cv(X: Data, y: Target, feature_names: List[str],
+                          clf_model: Model, experiment_name: str,
+                          n_folds: int = 5, cv_datasets_column=None,
+                          ):
+    # It needs because of iloc
+    if feature_names:
+        X = pd.DataFrame(X, columns=feature_names)
+    else:
+        X = pd.DataFrame(X)
     y = pd.Series(y)
 
     # Training preparation
@@ -101,14 +196,17 @@ def run_model_pipeline_cv(X: Data, y: Target, clf_model: Model,
 
     predictions = np.zeros(y.shape) - 1
     scores, models, durations = defaultdict(list), [], []
-    skf = StratifiedKFold(n_splits=n_folds, shuffle=True)
 
-    for i, (train_index, test_index) in enumerate(skf.split(X, y)):
+    if cv_datasets_column:
+        stratified_column = cv_datasets_column
+    else:
+        stratified_column = y
+
+    skf = StratifiedKFold(n_splits=n_folds, shuffle=True)
+    for i, (train_index, test_index) in enumerate(skf.split(X, stratified_column)):
         start = time.monotonic()
 
-        # split data
-        X_train, X_test = X.iloc[train_index], X.iloc[test_index]
-        y_train, y_test = y.iloc[train_index], y.iloc[test_index]
+        X_train, X_test, y_train, y_test = split_data(X, y, train_index, test_index)
 
         # train clf
         clf = clf_model.reset()
@@ -123,21 +221,22 @@ def run_model_pipeline_cv(X: Data, y: Target, clf_model: Model,
             scores[metric_name].append(metric_scorer(y_test, y_pred))
 
         # saving intermediate results
-        clf.save_model(os.path.join(exp_path, 'model_{}'.format(i)))
+        save_model_and_artifacts(clf, i, scores, predictions, durations, exp_path)
 
-        scores_path = os.path.join(exp_path, 'scores.json')
-        with open(scores_path, 'w') as f:
-            json.dump(scores, f)
+    # calc features importance
+    _, sum_divide_max_importance = get_features_importance(models)
+    id_name_freq_triples = [(i, feature_names[i], freq)
+                            for i, freq in enumerate(sum_divide_max_importance)]
+    id_name_freq_triples.sort(key=lambda x: x[2])  # x[2] == freq
 
-        predictions_path = os.path.join(exp_path, 'predictions.pkl')
-        with open(predictions_path, 'bw') as f:
-            pickle.dump(predictions, f)
+    # save features importance
+    id_name_freq_triples_path = os.path.join(exp_path, 'features_id_name_freq_triples.joblib')
+    joblib.dump(id_name_freq_triples, id_name_freq_triples_path)
 
-        durations_path = os.path.join(exp_path, 'durations.pkl')
-        with open(durations_path, 'bw') as f:
-            pickle.dump(durations, f)
+    _, features_names, features_freqs = zip(*id_name_freq_triples)  # transpose id_name_freq_triples
+    save_plt_bar_feature_importance(features_names, features_freqs, exp_path)
 
-    return predictions, scores, models, durations
+    return predictions, scores, models, durations, id_name_freq_triples
 
 
 def example():
@@ -146,9 +245,55 @@ def example():
     X, y = data['data'], data['target']
 
     model = ClassifierPickleSaveLoad(LGBMClassifier(), LGBMClassifier)
-    pipeline_results = run_model_pipeline_cv(X, y, model, 'example_exp')
-    predictions, scores, models, durations = pipeline_results
+    pipeline_results = run_model_pipeline_cv(X, y, data['feature_names'],
+                                             model, 'example_exp')
+
+    predictions, scores, models, durations, id_name_freq_triples = pipeline_results
+
+
+def example_with_cv_by_datasets():
+    from sklearn.datasets import load_iris
+    data = load_iris()
+    X, y = data['data'], data['target']
+
+    model = ClassifierPickleSaveLoad(LGBMClassifier(), LGBMClassifier)
+    pipeline_results = run_model_pipeline_cv(X, y, data['feature_names'],
+                                             model, 'example_exp',
+
+                                             # use column with datasets names instead "data['target']"
+                                             cv_datasets_column=data['target'])
+
+    predictions, scores, models, durations, id_name_freq_triples = pipeline_results
+
+
+def example_with_feature_selection():
+    from sklearn.datasets import load_iris
+    data = load_iris()
+    X, y = data['data'], data['target']
+
+    # load previous features
+    previous_features_path = os.path.join(FILE_DIR, EXPERIMENT_FOLDER, 'example_exp',
+                                          'features_id_name_freq_triples.joblib')
+    features_id_name_freq_triples = joblib.load(previous_features_path)
+
+    # select data without bad features
+    features_ids, features_names, features_freqs = zip(*features_id_name_freq_triples)
+
+    # delete first features (small importance)
+    bad_features_names = list(features_names[:2])
+    good_features_names = list(features_names[2:])
+
+    X = pd.DataFrame(X, columns=data['feature_names'])
+    X = X.drop(bad_features_names, axis=1)
+
+    # learning
+    model = ClassifierPickleSaveLoad(LGBMClassifier(), LGBMClassifier)
+    pipeline_results = run_model_pipeline_cv(X, y, good_features_names,
+                                             model, 'example_exp_without_some_features')
+
+    predictions, scores, models, durations, id_name_freq_triples = pipeline_results
 
 
 if __name__ == '__main__':
-    example()
+    example_with_feature_selection()
+    # example()
