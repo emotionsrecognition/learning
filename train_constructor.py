@@ -101,6 +101,26 @@ class ClassifierWithSaveLoadInterface(Model):
         return model
 
 
+class DatasetsFolds:
+    def split(self, X, y):
+        """
+
+        :param X: data for model training
+        :param y: column with dataset names
+        :return: Iterable([train_indices, test_indices)
+        """
+        if X.shape[0] != y.shape[0]:
+            raise ValueError('X.shape[0] != y.shape[0]')
+
+        y = pd.Series(y)
+        for y_unique_value in y.unique():
+            test_part = y[y == y_unique_value]
+
+            train_indices = y.index.difference(test_part.index)
+            test_indices = test_part.index
+            yield train_indices, test_indices
+
+
 def save_model_and_artifacts(model, i, scores, predictions, durations, exp_path):
     model.save_model(os.path.join(exp_path, 'model_{}'.format(i)))
 
@@ -197,13 +217,15 @@ def run_model_pipeline_cv(X: Data, y: Target, feature_names: List[str],
     predictions = np.zeros(y.shape) - 1
     scores, models, durations = defaultdict(list), [], []
 
-    if cv_datasets_column:
+    if cv_datasets_column is not None:
         stratified_column = cv_datasets_column
+        data_splitter = DatasetsFolds()
+
     else:
         stratified_column = y
+        data_splitter = StratifiedKFold(n_splits=n_folds, shuffle=True)
 
-    skf = StratifiedKFold(n_splits=n_folds, shuffle=True)
-    for i, (train_index, test_index) in enumerate(skf.split(X, stratified_column)):
+    for i, (train_index, test_index) in enumerate(data_splitter.split(X, stratified_column)):
         start = time.monotonic()
 
         X_train, X_test, y_train, y_test = split_data(X, y, train_index, test_index)
@@ -222,6 +244,10 @@ def run_model_pipeline_cv(X: Data, y: Target, feature_names: List[str],
 
         # saving intermediate results
         save_model_and_artifacts(clf, i, scores, predictions, durations, exp_path)
+
+    # calc mean metrics
+    for metric_name, metric_scorer in METRICS.items():
+        scores[metric_name + '_mean'] = np.array(scores[metric_name]).mean()
 
     # calc features importance
     _, sum_divide_max_importance = get_features_importance(models)
@@ -255,13 +281,14 @@ def example_with_cv_by_datasets():
     from sklearn.datasets import load_iris
     data = load_iris()
     X, y = data['data'], data['target']
+    cv_column = pd.Series(y).index.values % 4
 
     model = ClassifierPickleSaveLoad(LGBMClassifier(), LGBMClassifier)
     pipeline_results = run_model_pipeline_cv(X, y, data['feature_names'],
-                                             model, 'example_exp',
+                                             model, 'example_exp_cv_by_datasets',
 
                                              # use column with datasets names instead "data['target']"
-                                             cv_datasets_column=data['target'])
+                                             cv_datasets_column=cv_column)
 
     predictions, scores, models, durations, id_name_freq_triples = pipeline_results
 
@@ -280,11 +307,10 @@ def example_with_feature_selection():
     features_ids, features_names, features_freqs = zip(*features_id_name_freq_triples)
 
     # delete first features (small importance)
-    bad_features_names = list(features_names[:2])
     good_features_names = list(features_names[2:])
 
     X = pd.DataFrame(X, columns=data['feature_names'])
-    X = X.drop(bad_features_names, axis=1)
+    X = X.loc[:, good_features_names]
 
     # learning
     model = ClassifierPickleSaveLoad(LGBMClassifier(), LGBMClassifier)
@@ -295,5 +321,5 @@ def example_with_feature_selection():
 
 
 if __name__ == '__main__':
-    example_with_feature_selection()
+    example_with_cv_by_datasets()
     # example()
