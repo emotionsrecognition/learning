@@ -192,8 +192,8 @@ def get_top_worst_features(models, feature_names, n, exp_path):
 
 
 def split_data(X, y, train_index, test_index):
-    X_train, X_test = X.iloc[train_index], X.iloc[test_index]
-    y_train, y_test = y.iloc[train_index], y.iloc[test_index]
+    X_train, X_test = X.loc[train_index], X.loc[test_index]
+    y_train, y_test = y.loc[train_index], y.loc[test_index]
 
     return X_train, X_test, y_train, y_test
 
@@ -214,7 +214,7 @@ def run_model_pipeline_cv(X: Data, y: Target, feature_names: List[str],
     if not os.path.exists(exp_path):
         os.mkdir(exp_path)
 
-    predictions = np.zeros(y.shape) - 1
+    predictions = pd.Series(np.zeros(y.shape) - 1, index=y.index)
     scores, models, durations = defaultdict(list), [], []
 
     if cv_datasets_column is not None:
@@ -320,6 +320,20 @@ def example_with_feature_selection():
     predictions, scores, models, durations, id_name_freq_triples = pipeline_results
 
 
+def real_case_example():
+    data = pd.read_csv('shrinked2.csv', sep=';', encoding='latin1')
+    data = data.loc[data['gender'] == 0]
+    X, y = data.iloc[:, 8:], data['emotion']
+    cv_column = data['dataset']
+    
+    model = ClassifierPickleSaveLoad(LGBMClassifier(), LGBMClassifier)
+    pipeline_results = run_model_pipeline_cv(X, y, list(X.columns),
+                                             model, 'real_case_example',
+                                             cv_datasets_column=cv_column)
+
+    predictions, scores, models, durations, id_name_freq_triples = pipeline_results
+
+
 if __name__ == '__main__':
-    example_with_cv_by_datasets()
+    real_case_example()
     # example()
