@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # coding=utf-8
 import os
-import shutil
 import subprocess
 from itertools import chain
 from pathlib import Path
@@ -21,8 +20,8 @@ smileextract_path = os.path.join('opensmile-2.3.0', 'bin', BIN_PATH, 'SMILExtrac
 config_path = 'opensmile_config'
 CONFIG = f'{smileextract_path} -C {os.path.join("opensmile_config", "main.conf")}'
 
-AGGREGATES_PATH = 'aggr_data.csv'
-AGGREGATES_COPY_PATH = 'aggr_data_processed.csv'
+AGGREGATES_PATH = 'aggr_data_04_06.csv'
+AGGREGATES_COPY_PATH = 'aggr_data_04_06_processed.csv'
 
 
 def get_output_path(input_path: str) -> str:
@@ -31,27 +30,19 @@ def get_output_path(input_path: str) -> str:
     return os.path.join(*parts) + '.csv'
 
 
-def get_features(info_list: Iterable[datasets.FileInfo], config_path: str) -> None:
-    processed = open('processed.txt', 'a')
+def get_features(files: Iterable[str], config_path: str, output_path: str) -> bool:
     base_command = config_path + ' -I "{input}" -A "{aggregates}" -N {line_name} -nologfile'
-    for info in info_list:
+    status = True
+    for file_path in files:
         try:
             command = base_command.format(
-                aggregates=AGGREGATES_PATH, input=info.file_path, line_name='_'.join(info.file_path.split(' '))
+                aggregates=output_path, input=file_path, line_name='_'.join(file_path.split(' '))
             )
             subprocess.check_output(command, shell=True)
         except Exception:
+            status = False
             continue
-        else:
-            processed.write(f'{info.file_path}\n')
-    processed.close()
-
-
-def mirror_dir_tree(base_path: str) -> None:
-    def ignore(dir, files):
-        return [f for f in files if os.path.isfile(os.path.join(dir, f))]
-
-    shutil.copytree(base_path, f'{base_path}_csv', ignore=ignore)
+    return status
 
 
 def process_aggreagtes(info_list: Iterable[datasets.FileInfo]) -> None:
@@ -91,16 +82,11 @@ def process_aggreagtes(info_list: Iterable[datasets.FileInfo]) -> None:
 
 
 if __name__ == '__main__':
-    try:
-        mirror_dir_tree('data')
-    except Exception:
-        pass
-
-    ds = tuple(chain(
+    infos = tuple(chain(
         datasets.get_emovo(), datasets.get_ravdess(), datasets.get_cafe(), datasets.get_berlin(), datasets.get_tess()
     ))
 
-    get_features(ds, CONFIG)
-    process_aggreagtes(ds)
+    get_features((i.file_path for i in infos), CONFIG, AGGREGATES_PATH)
+    process_aggreagtes(infos)
 
 
